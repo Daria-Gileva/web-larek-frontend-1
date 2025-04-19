@@ -4,10 +4,15 @@
 // трансформировать один тип в другой.
 
 import { EventEmitter } from '../components/base/events';
-import { ensureElement } from '../utils/utils';
-import { ensureAllElements } from '../utils/utils';
 import { Api } from '../components/base/api';
+import * as utils from '../utils/utils';
 
+// Presenter
+
+interface IEventEmitter {
+	emit: (event: string, data?: unknown) => void;
+	on: (event: string, callback: (event: unknown) => void) => void;
+}
 // Интерфейс API-клиента
 // Интерфейсы модели данных
 // Интерфейсы отображений
@@ -25,10 +30,8 @@ export interface IProductModel {
 }
 
 export interface ICatalogModel {
-	readonly addressEvent: string; // 'Catalog:Change';
-
-	_items: Array<IProductModel>;
-
+	readonly addEvent: string; // 'Catalog:Change';
+	items: Array<IProductModel>;
 	// Заполнить элементы
 	// Послать сигнал
 	setItems(items: Array<IProductModel>): void;
@@ -41,24 +44,65 @@ export interface ICatalogModel {
 	removeAll(): void;
 }
 
+export class CatalogModel implements ICatalogModel {
+	items: IProductModel[];
+	addEvent: string = 'Catalog:Change';
+
+	constructor(protected _event: IEventEmitter) {}
+
+	getProduct(id: String): IProductModel {
+		for (let counter = 0; counter < this.items.length; counter++) {
+			if (this.items[counter].id == id) {
+				return this.items[counter];
+			}
+		}
+	}
+	removeAll(): void {
+		this.items.splice(0, this.items.length);
+		this._event.emit(this.addEvent, this.items);
+	}
+	setItems(items: Array<IProductModel>): void {
+		this.items = items;
+		this._event.emit(this.addEvent, this.items);
+	}
+}
+
 enum Payment {
 	card = 'card',
 	cash = 'cash',
 }
 
 export interface IDeliveryModel {
-	_payment: Payment;
-	_address: string;
+	payment: Payment;
+	address: string;
 
 	clear(): void;
 }
+
+// class DeliveryModel implements IDeliveryModel {
+// 	protected _payment: Payment;
+// 	protected _address: string;
+// 	clear(): void {
+// 		this._payment = Payment.card;
+// 		this._address = null;
+// 	}
+// }
 
 export interface IContactModel {
-	_phone: string;
-	_email: string;
+	phone: string;
+	email: string;
 
 	clear(): void;
 }
+
+// class ContactModel implements IContactModel {
+// 	protected _phone: string;
+// 	protected _email: string;
+// 	clear(): void {
+// 		this._phone = null;
+// 		this._email = null;
+// 	}
+// }
 
 export interface IOrderModel extends IDeliveryModel, IContactModel {
 	total: number;
@@ -67,34 +111,82 @@ export interface IOrderModel extends IDeliveryModel, IContactModel {
 	clear(): void;
 }
 
-export class BasketModel {
-	readonly addressEvent = 'Backet:Change';
+class OrderModel implements IOrderModel {
+	payment: Payment;
+	address: string;
+	phone: string;
+	email: string;
+	total: number;
+	items: string[];
+	clear(): void {
+		this.payment = Payment.card;
+		this.address = null;
+		this.phone = null;
+		this.email = null;
+		this.total = null;
+		this.items = null;
+	}
+}
 
-	protected _items: Array<IProductModel>;
+export interface IBasketModel {
+	readonly changeEvent: string; //'Backet:Change';
+
+	items: Array<IProductModel>;
+
+	add(item: IProductModel): void;
+
+	// Добавить элемент
+	// Отправить addressEvent
+
+	remove(id: Number): void;
+	// Удалить элемент
+	// Отправить addressEvent
+
+	removeAll(): void;
+	// Удалить элементы
+	// Отправить addressEvent
+
+	getCounter(): Number;
+	getAllSum(): Number;
+	// Вернуть сумму элементов
+}
+
+export class BasketModel implements IBasketModel {
+	changeEvent: string = 'Backet:Change';
+	items: Array<IProductModel> = [];
+
+	constructor(protected _event: IEventEmitter) {}
 
 	add(item: IProductModel): void {
-		// Добавить элемент
-		// Отправить addressEvent
+		this.items.push(item);
+		this._event.emit(this.changeEvent, this.items);
 	}
-	remove(item: IProductModel): void {
-		// Удалить элемент
-		// Отправить addressEvent
+	remove(id: Number): void {
+		this.items.splice(id.valueOf(), id.valueOf());
+		this._event.emit(this.changeEvent, this.items);
 	}
 	removeAll(): void {
-		// Удалить элементы
-		// Отправить addressEvent
+		this.items.splice(0, this.items.length);
+		this._event.emit(this.changeEvent, this.items);
 	}
-
 	getCounter(): Number {
-		return this._items.length;
+		return this.items.length;
 	}
 	getAllSum(): Number {
-		// Вернуть сумму элементов
-		return 0;
+		let price = 0;
+		this.items.forEach((element) => {
+			price += element.price;
+		});
+		return price;
 	}
 }
 
 export interface IOrderResponseModel {
+	id: string;
+	total: number;
+}
+
+class OrderResponseModel implements IOrderResponseModel {
 	id: string;
 	total: number;
 }
@@ -133,24 +225,17 @@ export class AppApi extends Api implements IAppAPI {
 	}
 }
 
-// Presenter
-
-interface IEventEmitter {
-	emit: (event: string, data?: unknown) => void;
-	on: (event: string, callback: (event: unknown) => void) => void;
-}
-
 // View
 
 interface IView {
 	render(data?: unknown): HTMLElement;
 }
 
-class Modal implements IView {
+export class Modal implements IView {
 	protected _closeButton: HTMLButtonElement;
 	protected _content: HTMLElement;
-	readonly openEvent = 'Modal:Open';
-	readonly closeEvent = 'Modal:Close';
+	openEvent = 'Modal:Open';
+	closeEvent = 'Modal:Close';
 
 	constructor(
 		protected _container: HTMLElement,
@@ -160,6 +245,7 @@ class Modal implements IView {
 		this._content = _container.querySelector('.modal__content');
 		this._closeButton.addEventListener('click', this.close.bind(this));
 		this._container.addEventListener('click', this.close.bind(this));
+		// this._container.addEventListener('esc', this.close.bind(this));
 		this._content.addEventListener('click', (event) => event.stopPropagation());
 	}
 	set content(value: HTMLElement) {
@@ -181,115 +267,162 @@ class Modal implements IView {
 	}
 }
 
-class ProductView implements IView {
+export class ProductView implements IView {
 	protected _title: HTMLElement;
 	protected _price: HTMLElement;
-	protected _identifierCard?: HTMLElement;
 	protected _description?: HTMLElement;
 	protected _image?: HTMLImageElement;
 	protected _category?: HTMLElement;
 	protected _button?: HTMLButtonElement;
-	protected _buttonTitle: string;
 	protected _container: HTMLElement;
+
+	event: string;
+	id: string;
 
 	constructor(
 		template: HTMLTemplateElement,
-		protected events: IEventEmitter,
-		protected actions?: () => {}
+		protected _events: IEventEmitter,
+		name: String
 	) {
-		// Создать контейнер по шаблону
-		// найти _title _price _container
+		this.event = name + ':Action';
+
+		this._container = utils.cloneTemplate<HTMLElement>(template);
+
+		this._title = this._container.querySelector('.card__title');
+		this._price = this._container.querySelector('.card__price');
+		this._description = this._container.querySelector('.card__text');
+		this._image = this._container.querySelector('.card__image');
+		this._category = this._container.querySelector('.card__category');
+		this._button = this._container.querySelector('.card__button');
+
+		if (this._button) {
+			this._button.addEventListener('click', () => this.onAction());
+		} else {
+			this._container.addEventListener('click', () => this.onAction());
+		}
 	}
 
 	onAction() {
-		this.actions();
+		this._events.emit(this.event, this.id);
 	}
 
 	render(data?: IProductModel): HTMLElement {
+		if (data) {
+			this.id = data.id;
+			this._title.innerText = data.title;
+			this._price.innerText = `$${data.price}`;
+			if (this._description) {
+				this._description.innerText = data.description;
+			}
+			if (this._image) {
+				this._image.src = data.image;
+			}
+			if (this._category) {
+				this._category.innerText = data.category;
+			}
+		}
 		return this._container;
 	}
 }
 
-class BasketView implements IView {
-	protected _products: Array<ProductView>;
+export class BasketView implements IView {
 	protected _price: HTMLElement;
 	protected _button: HTMLButtonElement;
+	protected _container: HTMLElement;
+	protected _list: HTMLUListElement;
 	readonly submitEvent = 'Busket:submit';
 
-	constructor(
-		protected _container: HTMLElement,
-		protected _events: IEventEmitter
-	) {
-		// Заполнить поля
-		// Добавить обработчики событий
+	constructor(template: HTMLTemplateElement, protected _events: IEventEmitter) {
+		this._container = utils.cloneTemplate<HTMLElement>(template);
+
+		this._price = utils.ensureElement<HTMLElement>(
+			'.basket__price',
+			this._container
+		);
+		this._list = utils.ensureElement<HTMLUListElement>(
+			'.basket__list',
+			this._container
+		);
+		this._button = utils.ensureElement<HTMLButtonElement>(
+			'.basket__button',
+			this._container
+		);
+		this._button.addEventListener('click', () => this.onConfirm());
 	}
 
 	onConfirm() {
 		// послать сигнал submitEvent, с _products
 	}
 
-	render(data: IProductModel[]): HTMLElement {
-		// выдать позиции для каждого дочернего элемента container
+	render(products: HTMLElement[]): HTMLElement {
+		products.forEach((product) => {
+			this._list.appendChild(product);
+		});
+
 		return this._container;
+	}
+
+	protected updateTotalPrice(total: Number): void {
+		this._price.textContent = `Total Price: $${total}`;
+		// выдать позиции для каждого дочернего элемента container
 	}
 }
 
 export class Page implements IView {
-	protected _counter: HTMLElement;
+	protected _basketButton: HTMLButtonElement;
+	protected _basketCounter: HTMLElement;
 	protected _catalog: HTMLElement;
-	protected _wrapper: HTMLElement;
-	protected _basket: HTMLElement;
+
+	event: string = 'Basket:Open';
 
 	constructor(
-		protected _container: HTMLElement,
+		protected _wrapper: HTMLElement,
 		protected _events: IEventEmitter
 	) {
-		this._counter = ensureElement<HTMLElement>(
-			'.header__basket-counter',
-			_container
+		this._basketButton = utils.ensureElement<HTMLButtonElement>(
+			'.header__basket',
+			this._wrapper
 		);
-		this._catalog = ensureElement<HTMLElement>('.gallery', _container);
-		this._wrapper = ensureElement<HTMLElement>('.page__wrapper', _container);
-		this._basket = ensureElement<HTMLElement>('.header__basket', _container);
+		this._basketCounter = utils.ensureElement<HTMLElement>(
+			'.header__basket-counter',
+			this._wrapper
+		);
+		this._catalog = utils.ensureElement<HTMLElement>('.gallery', this._wrapper);
 
-		this._basket.addEventListener('click', () => {
-			this._events.emit('basket:open');
+		this._basketButton.addEventListener('click', () => {
+			this.lock(true);
+			this._events.emit(this.event);
 		});
 	}
 
-	setCounter(value: number) {
-		this._counter.textContent = String(value);
+	updateCounter(value: Number) {
+		this._basketCounter.textContent = String(value);
 	}
 
 	lock(value: boolean) {
-		this._wrapper.classList.add('page__wrapper_locked');
+		if (value) this._wrapper.classList.add('page__wrapper_locked');
+		else this._wrapper.classList.remove('page__wrapper_locked');
 	}
 
-	unlock(value: boolean) {
-		this._wrapper.classList.remove('page__wrapper_locked');
-	}
+	render(items: HTMLElement[]): HTMLElement {
+		items.forEach((item) => {
+			this._catalog.appendChild(item);
+		});
 
-	setCatalog(items: ICatalogModel[]) {
-		// Очистить дочерние элементы и заполнить новыми
-	}
-
-	render(items: ICatalogModel[]): HTMLElement {
-		// внедрить все элменты
-		return this._container;
+		return this._wrapper;
 	}
 }
 
 class Form {
 	protected _submit: HTMLButtonElement;
+	protected _container: HTMLFormElement;
 
 	readonly submitEvent = 'Form:submit';
 
-	constructor(
-		protected _container: HTMLFormElement,
-		protected _events: IEventEmitter,
-		protected _action: (data?: unknown) => void
-	) {
-		this._submit = ensureElement<HTMLButtonElement>(
+	constructor(template: HTMLTemplateElement, protected _events: IEventEmitter) {
+		this._container = utils.cloneTemplate<HTMLFormElement>(template);
+
+		this._submit = utils.ensureElement<HTMLButtonElement>(
 			`.order__button`,
 			this._container
 		);
@@ -303,7 +436,7 @@ class Form {
 		// Очистить поля
 	}
 	onConfirm(data?: unknown) {
-		this._action(data);
+		this._events.emit(this.submitEvent, data);
 		// Отправить событие submitEvent
 	}
 }
@@ -311,18 +444,20 @@ class Form {
 class DeliveryFormView extends Form implements IView {
 	protected _payment: Array<HTMLButtonElement>;
 	protected _address: HTMLInputElement;
+	protected _container: HTMLFormElement;
 
 	readonly paymentEvent = 'Form:PaymentChange';
 	readonly addressEvent = 'Form:AddressChange';
 
 	constructor(
-		protected _container: HTMLFormElement,
+		template: HTMLTemplateElement,
 		protected _events: IEventEmitter,
 		action: (data?: unknown) => void
 	) {
-		super(_container, _events, action);
-		this._payment = ensureAllElements(`.button_alt`, this._container);
-		this._address = ensureElement<HTMLInputElement>(
+		super(template, _events);
+
+		this._payment = utils.ensureAllElements(`.button_alt`, this._container);
+		this._address = utils.ensureElement<HTMLInputElement>(
 			`.form__input`,
 			this._container
 		);
@@ -339,12 +474,22 @@ class DeliveryFormView extends Form implements IView {
 	}
 
 	setPayment(name: string) {
-		// Сделать выбранную кнопку акитвной, остальные деактивировать
-		// Отправить событие
+		this._payment.forEach((button) => {
+			button.classList.remove('button_alt-active');
+		});
+
+		const selectedButton = this._payment.find((button) => button.name === name);
+		if (selectedButton) {
+			selectedButton.classList.add('button_alt-active');
+			// this._events.emit(this.paymentEvent, { paymentMethod: name });
+		}
 	}
 
 	render(data: IDeliveryModel): HTMLElement {
-		// Вернуть элемент
+		if (data) {
+			this.setAddress(data.address);
+			this.setPayment(data.payment);
+		}
 		return this._container;
 	}
 }
@@ -357,25 +502,33 @@ class ContactFormView extends Form implements IView {
 	readonly addressEvent = 'Form:EmailChange';
 
 	constructor(
-		protected _container: HTMLFormElement,
+		template: HTMLTemplateElement,
 		protected _events: IEventEmitter,
 		action: (data?: unknown) => void
 	) {
-		super(_container, _events, action);
-		this._phone = null; // получить тел.
-		this._email = null; // получить адрес
+		super(template, _events);
+		this._phone = utils.ensureElement<HTMLInputElement>(
+			'#contacts input[name="phone"]',
+			this._container
+		);
 
-		// Уставноить обработчики событий
+		this._email = utils.ensureElement<HTMLInputElement>(
+			'#contacts input[name="email"]',
+			this._container
+		);
 	}
 
 	setPhone(value: string) {
-		// Отправить событие
+		this._phone.value = value;
 	}
 	setEmail(value: string) {
-		// Отправить событие
+		this._email.value = value;
 	}
 	render(data: IContactModel): HTMLElement {
-		// Вернуть элемент
+		if (data) {
+			this.setPhone(data.phone);
+			this.setEmail(data.email);
+		}
 		return this._container;
 	}
 }
@@ -386,21 +539,34 @@ class SuccessView implements IView {
 	protected _button: HTMLButtonElement;
 
 	constructor(
+		template: HTMLTemplateElement,
 		protected _container: HTMLElement,
 		protected _events: IEventEmitter,
 		onClick: () => void
 	) {
-		this._title = null; // получить title
-		this._description = null; // получить description
-		this._button = null; // получить button
+		this._title = utils.ensureElement<HTMLElement>(
+			'.order-success__title',
+			this._container
+		);
+		this._description = utils.ensureElement<HTMLElement>(
+			'.order-success__description',
+			this._container
+		);
+		this._button = utils.ensureElement<HTMLButtonElement>(
+			'.order-success__close',
+			this._container
+		);
 
-		// Уставноить обработчики событий
+		this._button.addEventListener('click', onClick);
 	}
 
-	setTotal(value: string) {}
+	setTotal(value: number) {
+		this._description.textContent += ` Total: ${value}`;
+	}
 
 	render(data: IOrderResponseModel): HTMLElement {
-		// Вернуть элемент
+		this.setTotal(data.total);
+
 		return this._container;
 	}
 }
