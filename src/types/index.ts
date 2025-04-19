@@ -67,7 +67,7 @@ export class CatalogModel implements ICatalogModel {
 	}
 }
 
-enum Payment {
+export enum Payment {
 	card = 'card',
 	cash = 'cash',
 }
@@ -77,54 +77,95 @@ export interface IDeliveryModel {
 	address: string;
 
 	clear(): void;
+	set(payment: Payment, address: string):void;
+	validate(payment: Payment, address: string):boolean;
 }
 
-// class DeliveryModel implements IDeliveryModel {
-// 	protected _payment: Payment;
-// 	protected _address: string;
-// 	clear(): void {
-// 		this._payment = Payment.card;
-// 		this._address = null;
-// 	}
-// }
+export class DeliveryModel implements IDeliveryModel {
+
+	payment: Payment = Payment.card;
+	address: string = "";
+
+	clear(): void {
+		this.payment = Payment.card;
+		this.address = "";
+	}
+	validate(payment: Payment, address: string): boolean {
+		if(!payment || !address) return false;
+		return true;
+	}
+	set(payment: Payment, address: string): void{
+		if(this.validate(payment,address)){
+			this.payment = payment;
+			this.address = address;
+		}
+	}
+}
+
 
 export interface IContactModel {
 	phone: string;
 	email: string;
 
 	clear(): void;
+	set(phone: string, email: string):void;
+	validate(phone: string, email: string):boolean;
 }
 
-// class ContactModel implements IContactModel {
-// 	protected _phone: string;
-// 	protected _email: string;
-// 	clear(): void {
-// 		this._phone = null;
-// 		this._email = null;
-// 	}
-// }
+export class ContactModel implements IContactModel {
+	phone: string = "";
+	email: string = "";
 
-export interface IOrderModel extends IDeliveryModel, IContactModel {
+	clear(): void {
+		this.phone  = "";
+		this.email  = "";
+	}
+	validate(phone: string, email: string): boolean {
+		if(!phone || !email) return false;
+		return true;
+	}
+	set(phone: string, email: string): void{
+		if(this.validate(phone,email)){
+			this.phone = phone;
+			this.email = email;
+		}
+	}
+}
+
+export interface IOrderModel {
 	total: number;
 	items: string[];
 
 	clear(): void;
+	set(basket: IBasketModel): void;
 }
 
-class OrderModel implements IOrderModel {
+export interface IOrderRequestModel {
 	payment: Payment;
 	address: string;
 	phone: string;
 	email: string;
 	total: number;
 	items: string[];
-	clear(): void {
-		this.payment = Payment.card;
-		this.address = null;
-		this.phone = null;
-		this.email = null;
-		this.total = null;
-		this.items = null;
+}
+
+export class OrderRequestModel implements IOrderRequestModel {
+	payment: Payment;
+	address: string;
+	phone: string;
+	email: string;
+	total: number;
+	items: string[] = [];
+
+	constructor(deliveryModel: IDeliveryModel, contactModel: IContactModel, basketModel: IBasketModel){
+		this.payment = deliveryModel.payment;
+		this.address = deliveryModel.address;
+		this.phone = contactModel.phone;
+		this.email = contactModel.email;
+		this.total = basketModel.getAllSum().valueOf();
+		basketModel.items.forEach(element=>{
+			this.items.push(element.id);
+		})
 	}
 }
 
@@ -134,21 +175,11 @@ export interface IBasketModel {
 	items: Array<IProductModel>;
 
 	add(item: IProductModel): void;
-
-	// Добавить элемент
-	// Отправить addressEvent
-
+	isExist(item: IProductModel): boolean;
 	remove(id: Number): void;
-	// Удалить элемент
-	// Отправить addressEvent
-
 	removeAll(): void;
-	// Удалить элементы
-	// Отправить addressEvent
-
 	getCounter(): Number;
 	getAllSum(): Number;
-	// Вернуть сумму элементов
 }
 
 export class BasketModel implements IBasketModel {
@@ -158,11 +189,23 @@ export class BasketModel implements IBasketModel {
 	constructor(protected _event: IEventEmitter) {}
 
 	add(item: IProductModel): void {
-		this.items.push(item);
-		this._event.emit(this.changeEvent, this.items);
+		if(!this.isExist(item)){
+			this.items.push(item);
+			this._event.emit(this.changeEvent, this.items);
+		}
 	}
+
+	isExist(item: IProductModel): boolean{
+		let exist = false;
+		this.items.forEach(element => {
+			if(element.id == item.id)
+				exist = true
+		})
+		return exist;
+	}
+
 	remove(id: Number): void {
-		this.items.splice(id.valueOf(), id.valueOf());
+		this.items.splice(id.valueOf(), 1);
 		this._event.emit(this.changeEvent, this.items);
 	}
 	removeAll(): void {
@@ -199,28 +242,30 @@ export interface IProductListResponceModel {
 
 export interface IAppAPI {
 	getProductList: () => Promise<IProductModel[]>;
-	order: (order: IOrderModel) => Promise<IOrderResponseModel>;
+	order: (order: IOrderRequestModel) => Promise<IOrderResponseModel>;
 }
 
 export class AppApi extends Api implements IAppAPI {
 	readonly cdn: string;
+	readonly imgExtens?: string;
 
-	constructor(cdn: string, baseUrl: string, options?: RequestInit) {
+	constructor(cdn: string, baseUrl: string, imgExtens?: string, options?: RequestInit ) {
 		super(baseUrl, options);
 
 		this.cdn = cdn;
+		this.imgExtens = imgExtens;
 	}
 
 	getProductList(): Promise<IProductModel[]> {
 		return this.get('/product').then((data: IProductListResponceModel) =>
 			data.items.map((item) => ({
 				...item,
-				image: this.cdn + item.image,
+				image: this.cdn + (this.imgExtens? item.image.replace(/\.svg$/, this.imgExtens) : item.image),
 			}))
 		);
 	}
 
-	order(order: IOrderModel): Promise<IOrderResponseModel> {
+	order(order: IOrderRequestModel): Promise<IOrderResponseModel> {
 		return this.post('/order', order).then((data: IOrderResponseModel) => data);
 	}
 }
@@ -244,9 +289,12 @@ export class Modal implements IView {
 		this._closeButton = _container.querySelector('.modal__close');
 		this._content = _container.querySelector('.modal__content');
 		this._closeButton.addEventListener('click', this.close.bind(this));
-		this._container.addEventListener('click', this.close.bind(this));
-		// this._container.addEventListener('esc', this.close.bind(this));
-		this._content.addEventListener('click', (event) => event.stopPropagation());
+		document.addEventListener('keydown', (event: KeyboardEvent)=>{
+			if (event.key === 'Escape') this.close()
+		});
+		this._container.addEventListener('click', (event) => {
+			if (event.currentTarget === event.target)this.close()
+		});
 	}
 	set content(value: HTMLElement) {
 		this._content.replaceChildren(value);
@@ -261,7 +309,9 @@ export class Modal implements IView {
 		this.content = null;
 		this._events.emit(this.closeEvent);
 	}
-	render(data?: HTMLElement): HTMLElement {
+	render(data?: HTMLElement, actualName?: String): HTMLElement {
+		this.openEvent = actualName+":Open";
+		this.closeEvent = actualName+":Close";
 		this._content.replaceChildren(data);
 		return this._container;
 	}
@@ -274,6 +324,7 @@ export class ProductView implements IView {
 	protected _image?: HTMLImageElement;
 	protected _category?: HTMLElement;
 	protected _button?: HTMLButtonElement;
+	protected _index?: HTMLElement;
 	protected _container: HTMLElement;
 
 	event: string;
@@ -294,6 +345,7 @@ export class ProductView implements IView {
 		this._image = this._container.querySelector('.card__image');
 		this._category = this._container.querySelector('.card__category');
 		this._button = this._container.querySelector('.card__button');
+		this._index = this._container.querySelector('.basket__item-index');
 
 		if (this._button) {
 			this._button.addEventListener('click', () => this.onAction());
@@ -303,22 +355,50 @@ export class ProductView implements IView {
 	}
 
 	onAction() {
-		this._events.emit(this.event, this.id);
+		this._events.emit(this.event, this._index? this._index.textContent :this.id);
 	}
 
-	render(data?: IProductModel): HTMLElement {
+	setActiveSubmit(cond: boolean): void {
+		if(cond){
+			this._button.removeAttribute("disabled")
+		}else {
+			this._button.setAttribute("disabled", String(cond));
+		}
+	}
+
+	render(data?: IProductModel, index?: Number): HTMLElement {
 		if (data) {
 			this.id = data.id;
 			this._title.innerText = data.title;
-			this._price.innerText = `$${data.price}`;
-			if (this._description) {
+			this._price.innerText = data.price?`${data.price} синапсов`:'Бесценно';
+			if (this._description && data.description) {
 				this._description.innerText = data.description;
 			}
-			if (this._image) {
+			if (this._image && data.image) {
 				this._image.src = data.image;
 			}
-			if (this._category) {
+			if (this._category && data.category) {
+				this._category.classList.remove('card__category_other');
+				switch(data.category){
+					case 'софт-скил':
+						this._category.classList.add('card__category_soft');
+						break;
+					case 'дополнительное':
+						this._category.classList.add('card__category_additional');
+						break;
+					case 'кнопка':
+						this._category.classList.add('card__category_button');
+						break;
+					case 'хард-скил':
+						this._category.classList.add('card__category_hard');
+						break;
+					default:
+						this._category.classList.add('card__category_other');
+				}
 				this._category.innerText = data.category;
+			}
+			if (this._index && index) {
+				this._index.innerText = String(index);
 			}
 		}
 		return this._container;
@@ -330,7 +410,7 @@ export class BasketView implements IView {
 	protected _button: HTMLButtonElement;
 	protected _container: HTMLElement;
 	protected _list: HTMLUListElement;
-	readonly submitEvent = 'Busket:submit';
+	readonly submit = 'Busket:Submit';
 
 	constructor(template: HTMLTemplateElement, protected _events: IEventEmitter) {
 		this._container = utils.cloneTemplate<HTMLElement>(template);
@@ -347,14 +427,17 @@ export class BasketView implements IView {
 			'.basket__button',
 			this._container
 		);
+		this.setActiveSubmit(false)
 		this._button.addEventListener('click', () => this.onConfirm());
 	}
 
 	onConfirm() {
-		// послать сигнал submitEvent, с _products
+		this._events.emit(this.submit)
 	}
 
 	render(products: HTMLElement[]): HTMLElement {
+		this._list.replaceChildren();
+
 		products.forEach((product) => {
 			this._list.appendChild(product);
 		});
@@ -362,8 +445,16 @@ export class BasketView implements IView {
 		return this._container;
 	}
 
-	protected updateTotalPrice(total: Number): void {
-		this._price.textContent = `Total Price: $${total}`;
+	setActiveSubmit(cond: boolean) {
+		if(cond){
+			this._button.removeAttribute("disabled")
+		}else {
+			this._button.setAttribute("disabled", String(cond));
+		}
+	};
+
+	updateTotalPrice(total: Number): void {
+		this._price.textContent = `${total} синапсов`;
 		// выдать позиции для каждого дочернего элемента container
 	}
 }
@@ -373,7 +464,7 @@ export class Page implements IView {
 	protected _basketCounter: HTMLElement;
 	protected _catalog: HTMLElement;
 
-	event: string = 'Basket:Open';
+	event: string = 'Page:Action';
 
 	constructor(
 		protected _wrapper: HTMLElement,
@@ -416,104 +507,149 @@ export class Page implements IView {
 class Form {
 	protected _submit: HTMLButtonElement;
 	protected _container: HTMLFormElement;
+	protected _inputs?: HTMLInputElement[];
+	protected _buttonsInput?: HTMLButtonElement[];
 
-	readonly submitEvent = 'Form:submit';
+	submitEvent = 'Form:Submit';
+	changeEvent = 'Form:Change';
 
-	constructor(template: HTMLTemplateElement, protected _events: IEventEmitter) {
+	constructor(template: HTMLTemplateElement, protected _events: IEventEmitter, name?: string) {
 		this._container = utils.cloneTemplate<HTMLFormElement>(template);
 
+		let tmpContextActions = utils.ensureElement<HTMLElement>(`.modal__actions`, this._container);
 		this._submit = utils.ensureElement<HTMLButtonElement>(
-			`.order__button`,
-			this._container
+			`.button`,
+			tmpContextActions
 		);
 
-		// Установить обработчик события
+		this._inputs = utils.ensureAllElements<HTMLInputElement>(".form__input", this._container)
+
+		let tmpContextButtons = utils.ensureElement<HTMLElement>(`.order`, this._container);
+		this._buttonsInput = utils.ensureAllElements<HTMLButtonElement>(".button", tmpContextButtons)
+
+		if(name){
+			this.submitEvent = name + ':Submit';
+			this.changeEvent = name + ':Change';
+		}
+		this._inputs.forEach(element=>{
+			element.addEventListener("input", (event:Event)=>{
+				const target = event.target as HTMLInputElement;
+				this._events.emit(this.changeEvent, target.value)
+			})
+		})
+		this._buttonsInput.forEach(element=>{
+			element.addEventListener("click", (event:Event)=>{
+				const target = event.target as HTMLButtonElement;
+
+				this._buttonsInput.forEach((button) => {
+					button.classList.remove('button_alt-active');
+				});
+				target.classList.add('button_alt-active');
+				this._events.emit(this.changeEvent, target.name)
+			})
+		})
+
+		this._submit.addEventListener("click",  (e)=>{
+			e.preventDefault();
+			this.onConfirm();
+		}
+		)
+
 	}
-	isValid(value: boolean) {
-		this._submit.disabled = !value;
-	}
-	clearFields() {
-		// Очистить поля
-	}
-	onConfirm(data?: unknown) {
-		this._events.emit(this.submitEvent, data);
-		// Отправить событие submitEvent
+
+	setActiveSubmit(cond: boolean) {
+		if(cond){
+			this._submit.removeAttribute("disabled")
+		}else {
+			this._submit.setAttribute("disabled", String(cond));
+		}
+	};
+
+	onConfirm() {
+		this._events.emit(this.submitEvent);
 	}
 }
 
-class DeliveryFormView extends Form implements IView {
+export class DeliveryFormView extends Form implements IView {
 	protected _payment: Array<HTMLButtonElement>;
 	protected _address: HTMLInputElement;
-	protected _container: HTMLFormElement;
-
-	readonly paymentEvent = 'Form:PaymentChange';
-	readonly addressEvent = 'Form:AddressChange';
 
 	constructor(
 		template: HTMLTemplateElement,
 		protected _events: IEventEmitter,
-		action: (data?: unknown) => void
 	) {
-		super(template, _events);
+		super(template, _events, 'Delivery');
 
-		this._payment = utils.ensureAllElements(`.button_alt`, this._container);
+		let tmpContextActions = utils.ensureElement<HTMLElement>(`.order`, this._container);
+		this._payment = utils.ensureAllElements(`.button`, tmpContextActions);
 		this._address = utils.ensureElement<HTMLInputElement>(
 			`.form__input`,
 			this._container
 		);
 
 		this._payment.forEach((button) => {
-			button.addEventListener('click', () => {
+			button.addEventListener('click', (event) => {
 				this.setPayment(button.name);
 			});
 		});
 	}
 
 	setAddress(value: string) {
-		this._address.value = value;
+		 this._address.value = value;
 	}
 
 	setPayment(name: string) {
-		this._payment.forEach((button) => {
-			button.classList.remove('button_alt-active');
-		});
+			this._payment.forEach((button) => {
+				button.classList.remove('button_alt-active');
+			});
+	
+			const selectedButton = this._payment.find((button) => button.name === name);
+			if (selectedButton) {
+				selectedButton.classList.add('button_alt-active');
+			}
+	}
 
-		const selectedButton = this._payment.find((button) => button.name === name);
-		if (selectedButton) {
-			selectedButton.classList.add('button_alt-active');
-			// this._events.emit(this.paymentEvent, { paymentMethod: name });
+	getPayment() : Payment.card {
+		let ret;
+		this._payment.forEach((button) => {
+			if(button.classList.contains('button_alt-active'))
+				ret = button.name
+		});
+		return ret
+	}
+
+	getValues(){
+		return{
+			address: this._address.value,
+			payment: this.getPayment()
 		}
 	}
 
 	render(data: IDeliveryModel): HTMLElement {
-		if (data) {
 			this.setAddress(data.address);
 			this.setPayment(data.payment);
-		}
 		return this._container;
 	}
 }
 
-class ContactFormView extends Form implements IView {
+export class ContactFormView extends Form implements IView {
 	protected _phone: HTMLInputElement;
 	protected _email: HTMLInputElement;
-
-	readonly paymentEvent = 'Form:PhoneChange';
-	readonly addressEvent = 'Form:EmailChange';
-
+	
 	constructor(
 		template: HTMLTemplateElement,
-		protected _events: IEventEmitter,
-		action: (data?: unknown) => void
+		protected _events: IEventEmitter
 	) {
-		super(template, _events);
+		super(template, _events, 'Contacts');
+		
+		console.log(this._container)
 		this._phone = utils.ensureElement<HTMLInputElement>(
-			'#contacts input[name="phone"]',
+			'input[name="phone"]',
 			this._container
 		);
 
 		this._email = utils.ensureElement<HTMLInputElement>(
-			'#contacts input[name="email"]',
+			'input[name="email"]',
 			this._container
 		);
 	}
@@ -524,6 +660,14 @@ class ContactFormView extends Form implements IView {
 	setEmail(value: string) {
 		this._email.value = value;
 	}
+
+	getValues(){
+		return{
+			phone: this._phone.value,
+			email: this._email.value,
+		}
+	}
+
 	render(data: IContactModel): HTMLElement {
 		if (data) {
 			this.setPhone(data.phone);
@@ -533,17 +677,20 @@ class ContactFormView extends Form implements IView {
 	}
 }
 
-class SuccessView implements IView {
+export class SuccessView implements IView {
 	protected _title: HTMLElement;
 	protected _description: HTMLElement;
 	protected _button: HTMLButtonElement;
+	protected _container: HTMLElement;
+
+	readonly event = "Success:Action"
 
 	constructor(
 		template: HTMLTemplateElement,
-		protected _container: HTMLElement,
-		protected _events: IEventEmitter,
-		onClick: () => void
+		protected _events: IEventEmitter
 	) {
+		this._container = utils.cloneTemplate<HTMLFormElement>(template);
+
 		this._title = utils.ensureElement<HTMLElement>(
 			'.order-success__title',
 			this._container
@@ -557,11 +704,13 @@ class SuccessView implements IView {
 			this._container
 		);
 
-		this._button.addEventListener('click', onClick);
+		this._button.addEventListener('click', ()=>{
+			this._events.emit(this.event);
+		});
 	}
 
 	setTotal(value: number) {
-		this._description.textContent += ` Total: ${value}`;
+		this._description.textContent = `Списано ${value} синапсов`;
 	}
 
 	render(data: IOrderResponseModel): HTMLElement {

@@ -10,7 +10,6 @@ import * as api from './components/base/api';
 const templateCardCatalog = document.querySelector(
 	'#card-catalog'
 ) as HTMLTemplateElement;
-const templateOrderSuccess = document.querySelector('#success');
 const templateCardPreview = document.querySelector(
 	'#card-preview'
 ) as HTMLTemplateElement;
@@ -18,38 +17,28 @@ const templateCardBasket = document.querySelector(
 	'#card-basket'
 ) as HTMLTemplateElement;
 const templateBasket = document.querySelector('#basket') as HTMLTemplateElement;
-const templateOrder = document.querySelector('#order');
-const templateContacts = document.querySelector('#contacts');
+const templateOrder = document.querySelector('#order') as HTMLTemplateElement;;
+const templateContacts = document.querySelector('#contacts') as HTMLTemplateElement;;
+const templateOrderSuccess = document.querySelector('#success') as HTMLTemplateElement;
 const wrapper = document.querySelector('.page__wrapper') as HTMLElement;
 const modalElement = document.querySelector('#modal-container') as HTMLElement;
 
 const events = new event.EventEmitter();
-const apiModel = new type.AppApi(CDN_URL, API_URL);
+
+const apiModel = new type.AppApi(CDN_URL, API_URL, ".png");
+const catalogModel = new type.CatalogModel(events);
+const basketModel = new type.BasketModel(events);
+const deliveryModel = new type.DeliveryModel();
+const contactModel = new type.ContactModel();
 
 const modalView = new type.Modal(modalElement, events);
-const catalogModel = new type.CatalogModel(events);
 const pageView = new type.Page(wrapper, events);
-
-const basketModel = new type.BasketModel(events);
 const basketView = new type.BasketView(templateBasket, events);
-// basketModal.render();
+const deliveryFormView = new type.DeliveryFormView(templateOrder, events)
+const contactFormView = new type.ContactFormView(templateContacts, events)
+const successView = new type.SuccessView(templateOrderSuccess, events)
 
-// events.on(basketModal.openEvent, () => {
-// 	console.log(basketModal.openEvent);
-// 	let productViews: Array<HTMLElement> = [];
-
-// 	basketModel.items.forEach((element) => {
-// 		productViews.push(
-// 			new type.ProductView(templateCardBasket, events).render(element)
-// 		);
-// 	});
-
-// 	basketModal.render(basketView.render(productViews));
-// });
-
-// function addToBasket(data: type.IProductModel) {
-// 	basketModel.add(data);
-// }
+let productView: type.ProductView;
 
 /********** Получаем данные с сервера **********/
 apiModel
@@ -75,175 +64,139 @@ events.on(catalogModel.addEvent, (data: type.IProductModel[]) => {
 
 events.on('ProductCatalog:Action', (data: String) => {
 	let product = catalogModel.getProduct(data);
-	let productView = new type.ProductView(
+	productView = new type.ProductView(
 		templateCardPreview,
 		events,
 		'ProductView'
 	);
-	modalView.render(productView.render(product));
+	modalView.render(productView.render(product),'ProductView');
+	productView.setActiveSubmit(!basketModel.isExist(product))
 	modalView.open();
 });
 
-events.on(modalView.closeEvent, () => {
-	pageView.lock(false);
+events.on('ProductView:Open', () => {
+	pageView.lock(true);
 });
 
-events.on(modalView.openEvent, () => {
-	pageView.lock(true);
+events.on('ProductView:Close', () => {
+	pageView.lock(false);
 });
 
 events.on('ProductView:Action', (data: String) => {
 	let product = catalogModel.getProduct(data);
 	basketModel.add(product);
+	productView.setActiveSubmit(!basketModel.isExist(product))
 });
 
-events.on(basketModel.changeEvent, () => {
-	pageView.updateCounter(basketModel.getCounter());
-});
-
-events.on(pageView.event, () => {
+function renderFillBasket(){
 	let productViews: Array<HTMLElement> = [];
+	let counter = 1;
 	basketModel.items.forEach((element) => {
 		productViews.push(
 			new type.ProductView(templateCardBasket, events, 'ProductBasket').render(
-				element
+				element,
+				counter++
 			)
 		);
 	});
 
-	modalView.render(basketView.render(productViews));
-	modalView.open();
+	modalView.render(basketView.render(productViews), "Basket");
+}
 
-	events.on('ProductBasket:Action', (id: Number) => {
-		basketModel.remove(id);
-	});
+// Изменение корзины
+events.on(basketModel.changeEvent, () => {
+	pageView.updateCounter(basketModel.getCounter());
+	basketView.updateTotalPrice(basketModel.getAllSum());
+	basketView.setActiveSubmit(basketModel.getCounter().valueOf() > 0)
 });
 
-// const apiModel = new ApiModel(CDN_URL, API_URL);
-// const events = new EventEmitter();
-// const dataModel = new DataModel(events);
-// const modal = new Modal(ensureElement<HTMLElement>('#modal-container'), events);
-// const basket = new Basket(templateBasket, events);
-// const basketModel = new BasketModel();
-// const formModel = new FormModel(events);
-// const order = new Order(templateOrder, events);
-// const contacts = new Contacts(templateContacts, events);
+events.on('ProductBasket:Action', (id: Number)=>{
+	basketModel.remove(id.valueOf() - 1);
+});
 
-// /********** Добавление карточки товара в корзину **********/
-// events.on('card:addBasket', () => {
-// 	basketModel.setSelectedСard(dataModel.selectedСard); // добавить карточку товара в корзину
-// 	basket.renderHeaderBasketCounter(basketModel.getCounter()); // отобразить количество товара на иконке корзины
-// 	modal.close();
-// });
+events.on(pageView.event, () => {
+	let productViews: Array<HTMLElement> = [];
+	let counter = 1;
+	basketModel.items.forEach((element) => {
+		productViews.push(
+			new type.ProductView(templateCardBasket, events, 'ProductBasket').render(
+				element,
+				counter++
+			)
+		);
+	});
 
-// /********** Открытие модального окна корзины **********/
-// events.on('basket:open', () => {
-// 	basket.renderSumAllProducts(basketModel.getSumAllProducts()); // отобразить сумма всех продуктов в корзине
-// 	let i = 0;
-// 	basket.items = basketModel.basketProducts.map((item) => {
-// 		const basketItem = new BasketItem(templateCardBasket, events, {
-// 			onClick: () => events.emit('basket:basketItemRemove', item),
-// 		});
-// 		i = i + 1;
-// 		return basketItem.render(item, i);
-// 	});
-// 	modal.content = basket.render();
-// 	modal.render();
-// });
+	modalView.render(basketView.render(productViews), "Basket");
+	modalView.open();
+});
 
-// /********** Удаление карточки товара из корзины **********/
-// events.on('basket:basketItemRemove', (item: IProductItem) => {
-// 	basketModel.deleteCardToBasket(item);
-// 	basket.renderHeaderBasketCounter(basketModel.getCounter()); // отобразить количество товара на иконке корзины
-// 	basket.renderSumAllProducts(basketModel.getSumAllProducts()); // отобразить сумма всех продуктов в корзине
-// 	let i = 0;
-// 	basket.items = basketModel.basketProducts.map((item) => {
-// 		const basketItem = new BasketItem(templateCardBasket, events, {
-// 			onClick: () => events.emit('basket:basketItemRemove', item),
-// 		});
-// 		i = i + 1;
-// 		return basketItem.render(item, i);
-// 	});
-// });
+events.on("Basket:Open", () => {
+	pageView.lock(true);
+	events.on(basketModel.changeEvent, renderFillBasket);
+})
 
-// /********** Открытие модального окна "способа оплаты" и "адреса доставки" **********/
-// events.on('order:open', () => {
-// 	modal.content = order.render();
-// 	modal.render();
-// 	formModel.items = basketModel.basketProducts.map((item) => item.id); // передаём список id товаров которые покупаем
-// });
+events.on("Basket:Close", ()=>{
+	pageView.lock(false);
+	events.off(basketModel.changeEvent, renderFillBasket);
+})
 
-// events.on('order:paymentSelection', (button: HTMLButtonElement) => {
-// 	formModel.payment = button.name;
-// }); // передаём способ оплаты
 
-// /********** Отслеживаем изменение в поле в вода "адреса доставки" **********/
-// events.on(`order:changeAddress`, (data: { field: string; value: string }) => {
-// 	formModel.setOrderAddress(data.field, data.value);
-// });
 
-// /********** Валидация данных строки "address" и payment **********/
-// events.on('formErrors:address', (errors: Partial<IOrderForm>) => {
-// 	const { address, payment } = errors;
-// 	order.valid = !address && !payment;
-// 	order.formErrors.textContent = Object.values({ address, payment })
-// 		.filter((i) => !!i)
-// 		.join('; ');
-// });
+events.on(basketView.submit, ()=>{
+	if(basketModel.getCounter().valueOf() > 0){
+		modalView.render(deliveryFormView.render(deliveryModel), "Delivery");
+		deliveryFormView.setActiveSubmit(false);
+		events.off(basketModel.changeEvent, renderFillBasket);
+	}
+})
 
-// /********** Открытие модального окна "Email" и "Телефон" **********/
-// events.on('contacts:open', () => {
-// 	formModel.total = basketModel.getSumAllProducts();
-// 	modal.content = contacts.render();
-// 	modal.render();
-// });
+events.on("Delivery:Close", () => {
+	pageView.lock(false);
+	deliveryModel.clear();
+})
 
-// /********** Отслеживаем изменение в полях вода "Email" и "Телефон" **********/
-// events.on(`contacts:changeInput`, (data: { field: string; value: string }) => {
-// 	formModel.setOrderData(data.field, data.value);
-// });
 
-// /********** Валидация данных строки "Email" и "Телефон" **********/
-// events.on('formErrors:change', (errors: Partial<IOrderForm>) => {
-// 	const { email, phone } = errors;
-// 	contacts.valid = !email && !phone;
-// 	contacts.formErrors.textContent = Object.values({ phone, email })
-// 		.filter((i) => !!i)
-// 		.join('; ');
-// });
+events.on("Delivery:Change", () => {
+	let data = deliveryFormView.getValues();
+	deliveryFormView.setActiveSubmit(deliveryModel.validate( data.payment, data.address));
+})
 
-// /********** Открытие модального окна "Заказ оформлен" **********/
-// events.on('success:open', () => {
-// 	apiModel
-// 		.postOrderLot(formModel.getOrderLot())
-// 		.then((data) => {
-// 			console.log(data); // ответ сервера
-// 			const success = new Success(templateOrderSuccess, events);
-// 			modal.content = success.render(basketModel.getSumAllProducts());
-// 			basketModel.clearBasketProducts(); // очищаем корзину
-// 			basket.renderHeaderBasketCounter(basketModel.getCounter()); // отобразить количество товара на иконке корзины
-// 			modal.render();
-// 		})
-// 		.catch((error) => console.log(error));
-// });
+events.on(deliveryFormView.submitEvent, () => {
+	let data = deliveryFormView.getValues();
+	deliveryModel.set(data.payment, data.address)
+	modalView.render(contactFormView.render(contactModel), "Contacts");
+	contactFormView.setActiveSubmit(false);
+})
 
-// events.on('success:close', () => modal.close());
+events.on("Contacts:Close", () => {
+	deliveryModel.clear();
+	contactModel.clear();
+	pageView.lock(false);
+})
 
-// /********** Блокируем прокрутку страницы при открытие модального окна **********/
-// events.on('modal:open', () => {
-// 	modal.locked = true;
-// });
+events.on("Contacts:Change", () => {
+	let data = contactFormView.getValues();
+	contactFormView.setActiveSubmit(contactModel.validate(data.phone, data.email));
+})
 
-// /********** Разблокируем прокрутку страницы при закрытие модального окна **********/
-// events.on('modal:close', () => {
-// 	modal.locked = false;
-// });
+events.on(contactFormView.submitEvent, () => {
+	let data = contactFormView.getValues();
+	contactModel.set(data.phone, data.email)
+	
 
-// /********** Получаем данные с сервера **********/
-// apiModel
-// 	.getListProductCard()
-// 	.then(function (data: IProductItem[]) {
-// 		dataModel.productCards = data;
-// 	})
-// 	// .then(dataModel.setProductCards.bind(dataModel))
-// 	.catch((error) => console.log(error));
+	let orderRequestModel = new type.OrderRequestModel(deliveryModel, contactModel, basketModel)
+	apiModel
+		.order(orderRequestModel)
+		.then(function (data: type.IOrderResponseModel) {
+			modalView.render(successView.render(data), "Success");
+		})
+		.catch((error) => console.log(error));
+})
+
+events.on(successView.event, () => {
+	basketModel.removeAll();
+	deliveryModel.clear();
+	contactModel.clear();
+	modalView.close();
+	pageView.lock(false);
+})
